@@ -14,6 +14,7 @@ var contentCollectionKnownCreators = document.getElementById("contentCollectionK
 var resetCreatorSelect = document.getElementById("resetCreatorSelect");
 var resetDownloadHistoryButton = document.getElementById("resetDownloadHistoryButton");
 var resetFeedback = document.getElementById("resetFeedback");
+var clearAllButton = document.getElementById("clearAllButton");
 // var contentCollectionClearKnownCreatorsButton = document.getElementById("contentCollectionClearKnownCreators");
 
 browser.runtime.getBackgroundPage().then((backgroundContext) => {
@@ -107,39 +108,40 @@ browser.runtime.getBackgroundPage().then((backgroundContext) => {
 			resetCreatorSelect.appendChild(opt);
 		}
 
+		let isSelective = backgroundContext.collectionMode === "selective";
+
 		for (const name in backgroundContext.knownCreators) {
+			let enabled = backgroundContext.knownCreators[name] === true;
+
+
 			let li = document.createElement('li');
 			let label = document.createElement('label');
 			let div = document.createElement('div');
 			let input = document.createElement('input');
 			let span = document.createElement('span');
 
-			// label.innerHTML = `<input type="checkbox"${backgroundContext.knownCreators[name]? ' checked="checked"' : ''} /><span>${name}</span>`;
 			input.type = 'checkbox';
-			if (backgroundContext.knownCreators[name] === true) {
-				input.checked = true;
-			}
+			input.checked = enabled;
 
 			span.innerText = name;
-			
+
 			label.addEventListener('change', (e) => {
 				if (backgroundContext.knownCreators.hasOwnProperty(name)) {
 					backgroundContext.knownCreators[name] = e.target.checked;
 					backgroundContext.updateSettingsStorage();
 				}
 			});
-			
+
 			div.classList.add('delete-button');
-			div.addEventListener('click', (e) => {
+			div.addEventListener('click', () => {
 				if (backgroundContext.knownCreators.hasOwnProperty(name)) {
 					delete backgroundContext.knownCreators[name];
 					backgroundContext.updateSettingsStorage();
+				} else {
+					console.error(`User tried to delete creator "${name}", which was not part of knownCreators.`);
 				}
-				else {
-					console.error(`User tried to delete creator "${name}", which was not part of knownCreators.`)
-				}
-			})
-			
+			});
+
 			label.appendChild(input);
 			label.appendChild(span);
 			li.appendChild(label);
@@ -147,6 +149,24 @@ browser.runtime.getBackgroundPage().then((backgroundContext) => {
 			contentCollectionKnownCreators.appendChild(li);
 		}
 	}, 1000);
+
+	clearAllButton.addEventListener('click', () => {
+		if (!window.confirm('This will delete the entire download history, all known creators, and reset all settings to default. Continue?'))
+			return;
+
+		backgroundContext.db.transaction("downloads", "readwrite").objectStore("downloads").clear();
+
+		backgroundContext.knownCreators = {};
+		backgroundContext.downloadAttachments = true;
+		backgroundContext.useLostAndFound = true;
+		backgroundContext.collectionMode = "greedy";
+		backgroundContext.concurrentDownloads = 1;
+		backgroundContext.activeDownloads = 0;
+
+		browser.storage.local.clear().then(() => {
+			browser.runtime.reload();
+		});
+	});
 
 }, (error) => {
 	console.error("error loading background context:", error);

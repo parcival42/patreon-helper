@@ -9,7 +9,9 @@ var dbVersion = 3;
 /* options */
 var downloadAttachments = true; // attachments currently only download with a "Save As" dialog; If false, these files will be ignored.
 var useLostAndFound = true; // attachments with file_name = null will be downloaded with a random generated file name to {ArtistName}_{LostAndFoundSuffix}
-var collectionMode = "greedy"; // "greedy" | "selective"
+// "greedy": collect from all creators by default, individual creators can be disabled
+// "selective": only collect from creators explicitly enabled via the popup
+var collectionMode = "greedy";
 var knownCreators = {};
 
 browser.storage.local.get('settings').then((result) => {
@@ -26,6 +28,7 @@ browser.storage.local.get('settings').then((result) => {
 		if (result.settings.hasOwnProperty('collectionMode'))
 			collectionMode = result.settings.collectionMode;
 		else if (result.settings.hasOwnProperty('contentCollectionEnabled'))
+			// migrate legacy boolean setting saved before collectionMode was introduced
 			collectionMode = result.settings.contentCollectionEnabled ? "greedy" : "selective";
 
 		if (result.settings.hasOwnProperty('knownCreators'))

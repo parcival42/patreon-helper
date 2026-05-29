@@ -281,11 +281,13 @@ async function addToDownloads(creator, filename, url) {
 
     console.info(`Queueing: creator: "${creator}", filename: "${filename}", url: "${url}"`);
 
+    // greedy: skip only creators the user explicitly disabled
     if (collectionMode === "greedy" && knownCreators[creator] === false) {
         console.info(`Collection mode greedy, but creator "${creator}" is disabled; queueing skipped.`);
         return;
     }
 
+    // selective: skip everyone not explicitly enabled via the popup
     if (collectionMode === "selective" && knownCreators[creator] !== true) {
         console.info(`Collection mode selective, creator "${creator}" not enabled; queueing skipped.`);
         return;
