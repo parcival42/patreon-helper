@@ -281,39 +281,30 @@ async function addToDownloads(creator, filename, url) {
 
     console.info(`Queueing: creator: "${creator}", filename: "${filename}", url: "${url}"`);
 
-    if (!contentCollectionEnabled) {
-        console.info(`Content collection generally disabled; queueing skipped.`);
+    // greedy: skip only creators the user explicitly disabled
+    if (collectionMode === "greedy" && knownCreators[creator] === false) {
+        console.info(`Collection mode greedy, but creator "${creator}" is disabled; queueing skipped.`);
         return;
     }
 
-    if (knownCreators[creator] === false) {
-        console.info(`Content collection enabled, but creator "${creator}" excluded; queueing skipped.`);
+    // selective: skip everyone not explicitly enabled via the popup
+    if (collectionMode === "selective" && knownCreators[creator] !== true) {
+        console.info(`Collection mode selective, creator "${creator}" not enabled; queueing skipped.`);
+        return;
+    }
+
+    if (!db) {
+        console.warn(`database not ready, skipping; filename: '${filename}', url: '${url}'`);
         return;
     }
 
     let identifier = determineFileIdentifier(filename, url);
 
-    if (typeof db === 'undefined') {
-        let dbOpen = window.indexedDB.open("patreonex", dbVersion);
-
-        dbOpen.onsuccess = () => {
-            db = dbOpen.result;
-            if (debug)
-                console.info("connection to database succeeded");
-        };
-
-        dbOpen.onerror = event => {
-            console.error("failed to connect to database", event);
-            return;
-        };
-    }
-
-    // check if filename already in database, add otherwise
-    let count = await db.transaction("downloads").objectStore("downloads").index("identifier").count(IDBKeyRange.only(identifier));
+    let count = db.transaction("downloads").objectStore("downloads").index("identifier").count(IDBKeyRange.only(identifier));
 
     count.onsuccess = () => {
-        if (count.result == 0) { // if not already in db
-            console.info(`adding to database; identifier: '${identifier}', filename: '${filename}', url: '${url}'`)
+        if (count.result == 0) {
+            console.info(`adding to database; identifier: '${identifier}', filename: '${filename}', url: '${url}'`);
 
             let op = db.transaction("downloads", "readwrite").objectStore("downloads").add({
                 identifier: identifier,
@@ -322,13 +313,14 @@ async function addToDownloads(creator, filename, url) {
                 state: 0
             });
 
+            op.onsuccess = () => downloadNext();
             op.onerror = () => {
-                console.error(`error adding to database; identifier: '${identifier}', filelename: '${filename}', url: '${url}'`)
+                console.error(`error adding to database; identifier: '${identifier}', filename: '${filename}', url: '${url}'`);
             };
         } else {
-            console.warn(`skipped adding to database due to count.result > 0; identifier: '${identifier}', filename '${filename}', url: '${url}'`)
+            console.warn(`skipped; already in database; identifier: '${identifier}'`);
         }
-    };   
+    };
 }
 
 function determineFileIdentifier(filename, url) {

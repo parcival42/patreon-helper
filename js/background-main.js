@@ -9,9 +9,9 @@ var dbVersion = 3;
 /* options */
 var downloadAttachments = true; // attachments currently only download with a "Save As" dialog; If false, these files will be ignored.
 var useLostAndFound = true; // attachments with file_name = null will be downloaded with a random generated file name to {ArtistName}_{LostAndFoundSuffix}
-var downloadInterval = 3000; // ms
-var downloadIntervalId = 0;
-var contentCollectionEnabled = true;
+// "greedy": collect from all creators by default, individual creators can be disabled
+// "selective": only collect from creators explicitly enabled via the popup
+var collectionMode = "greedy";
 var knownCreators = {};
 
 browser.storage.local.get('settings').then((result) => {
@@ -25,21 +25,22 @@ browser.storage.local.get('settings').then((result) => {
 		if (result.settings.hasOwnProperty('debug'))
 			debug = result.settings.debug;
 	
-		if (result.settings.hasOwnProperty('downloadInterval'))
-			downloadInterval = result.settings.downloadInterval;
-
-		if (result.settings.hasOwnProperty('contentCollectionEnabled'))
-			contentCollectionEnabled = result.settings.contentCollectionEnabled;
+		if (result.settings.hasOwnProperty('collectionMode'))
+			collectionMode = result.settings.collectionMode;
+		else if (result.settings.hasOwnProperty('contentCollectionEnabled'))
+			// migrate legacy boolean setting saved before collectionMode was introduced
+			collectionMode = result.settings.contentCollectionEnabled ? "greedy" : "selective";
 
 		if (result.settings.hasOwnProperty('knownCreators'))
 			knownCreators = result.settings.knownCreators;
+
+		if (result.settings.hasOwnProperty('concurrentDownloads'))
+			concurrentDownloads = result.settings.concurrentDownloads;
 	}
 
 	console.info("loaded user settings from localStorage:", result);
 
 	updateSettingsStorage();
-
-	initializeDownloadInterval();
 });
 
 function updateSettingsStorage() {
@@ -47,9 +48,9 @@ function updateSettingsStorage() {
 		downloadAttachments: downloadAttachments,
 		useLostAndFound: useLostAndFound,
 		debug: debug,
-		downloadInterval: downloadInterval,
-		contentCollectionEnabled: contentCollectionEnabled,
-		knownCreators: knownCreators
+		collectionMode: collectionMode,
+		knownCreators: knownCreators,
+		concurrentDownloads: concurrentDownloads
 	}
 
 	console.info('user settings changed:', settings);

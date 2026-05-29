@@ -1,16 +1,17 @@
-/*	
+/*
  *	Patreon Helper for Firefox
  * 	draconigen@gmail.com
  */
 
 var db;
+var activeDownloads = 0;
+var downloadIdToDbId = new Map(); // maps Firefox download ID → our DB record ID
 
 var dbOpen = indexedDB.open("patreonex", dbVersion);
 
 dbOpen.onupgradeneeded = () => {
     console.info(`initializing downloads structure, version "${dbVersion}".`);
 
-    // version 3 - added new index (identifier), hence the old object store must be dropped
     try {dbOpen.result.deleteObjectStore("downloads")}
     catch {console.warn("could not delete downloads object store - probably none present")}
 
@@ -23,87 +24,100 @@ dbOpen.onupgradeneeded = () => {
 
 dbOpen.onsuccess = () => {
     db = dbOpen.result;
-}
 
-// background download worker, started after user settings have been loaded in background-main.js or changed in options.js
-function initializeDownloadInterval() {
-    if (downloadIntervalId !== 0) {
-        console.info(`[download worker] attempting to cancel downloadInterval with intervalID "${downloadIntervalId}"`);
-        clearInterval(downloadIntervalId);
-    }
-
-    downloadIntervalId = setInterval(() => {
-        let request = db.transaction("downloads", "readwrite").objectStore("downloads").index("state").openCursor(IDBKeyRange.upperBound(0)); // get all with state <= 0
-
-        let i = 0;
-        request.onsuccess = (event) => {
-            let downloaded = false;
-
-            if (i++ >= concurrentDownloads || !event.target.result)
-                return;
-
-            let cursor = event.target.result;
-            let filename = cursor.value.filename;
-            let url = cursor.value.url;
-
-            console.info(`downloading; filename: '${filename}', url: '${url}'`)
-
-            // served from patreonusercontent.com - download directly
-            if (url.includes('patreonusercontent.com')) {
-                let dl = browser.downloads.download({
-                    filename: filename,
-                    url: url,
-                    saveAs: false
-                })
-                .then(
-                    () => { // onsuccess
-                        // todo: [2-1]
-                    },
-                    () => { // onerror
-                        console.error(`download failed; filename: '${filename}', url: '${url}'; browser.downloads.download() returned:`, dl)
-                    }
-                );
-
-                downloaded = true;
-            }
-            // something else (e.g. http-302) - open in tab // todo: [3]
-            else {
-                if (downloadAttachments) {
-                    console.info("Downloading attachment", {filename: filename, url: url});
-                    browser.tabs.create({
-                        active: false,
-                        url: url
-                    })
-                    downloaded = true;
-                }
-                else {
-                    console.info(`Attachment download skipped due to user settings (downloadAttachments: false)`, {filename: filename, url: url});
-                }
-            }
-            
-            if (downloaded) {
-                // todo: [2-2]
-                console.info(`marking as successfully downloaded; filename: '${filename}', url: '${url}'`)
-                cursor.value.state = 1;
-                cursor.update(cursor.value);
-            }
-
-            cursor.continue();
+    // reset in-progress items left over from a previous session
+    let store = db.transaction("downloads", "readwrite").objectStore("downloads");
+    store.index("state").openCursor(IDBKeyRange.only(2)).onsuccess = e => {
+        let cursor = e.target.result;
+        if (!cursor) {
+            for (let i = 0; i < concurrentDownloads; i++) downloadNext();
+            return;
         }
-    }, downloadInterval);
+        cursor.value.state = 0;
+        cursor.update(cursor.value);
+        cursor.continue();
+    };
+};
 
-    console.info(`started download interval (intervalID "${downloadIntervalId}") with "${downloadInterval}" ms interval`);
+// fires when a browser download actually completes or fails
+browser.downloads.onChanged.addListener(delta => {
+    if (!downloadIdToDbId.has(delta.id) || !delta.state) return;
+
+    let state = delta.state.current;
+    if (state !== 'complete' && state !== 'interrupted') return;
+
+    let dbId = downloadIdToDbId.get(delta.id);
+    downloadIdToDbId.delete(delta.id);
+
+    let success = state === 'complete';
+    let store = db.transaction("downloads", "readwrite").objectStore("downloads");
+    store.get(dbId).onsuccess = e => {
+        let record = e.target.result;
+        if (record) {
+            record.state = success ? 1 : 0;
+            store.put(record);
+        }
+    };
+
+    activeDownloads--;
+    downloadNext();
+});
+
+function downloadNext() {
+    if (activeDownloads >= concurrentDownloads || !db) return;
+    activeDownloads++; // claim slot synchronously before any async work
+
+    let store = db.transaction("downloads", "readwrite").objectStore("downloads");
+    store.index("state").openCursor(IDBKeyRange.only(0)).onsuccess = event => {
+        let cursor = event.target.result;
+        if (!cursor) {
+            activeDownloads--; // nothing pending, release slot
+            return;
+        }
+
+        let record = cursor.value;
+        record.state = 2; // mark in-progress
+        cursor.update(record);
+
+        startDownload(record.filename, record.url, record.id);
+    };
 }
-/*
- *  [2] : potential issue: a download will be signaled to have been downloaded (state = 1), 
- *  even though it is not confirmed that the download has successfully started (see [2-1], 
- *  which is in download().onsuccess method).
- *  Todo: either run the two lines following [2-2] only, if [2-1] has been run, or move
- *  the lines from below [2-2] to where [2-1] is; however, then cursor.value will be undefined. 
- * 
- *  [3] : bad ux: urls served through patreon.com/file redirect to the actual file on
- *  patreonusercontent.com per http-302; the current solution is to open a new tab
- *  with the known url and let it redirect towards the download; however, this
- *  opens a "save as" dialog to the user instead of simply downloading the file in the
- *  background.
- */
+
+function setDbState(dbId, state) {
+    let store = db.transaction("downloads", "readwrite").objectStore("downloads");
+    store.get(dbId).onsuccess = e => {
+        let record = e.target.result;
+        if (record) { record.state = state; store.put(record); }
+    };
+}
+
+function startDownload(filename, url, dbId) {
+    console.info(`downloading; filename: '${filename}', url: '${url}'`);
+
+    if (url.includes('patreonusercontent.com')) {
+        browser.downloads.download({ filename, url, saveAs: false })
+            .then(
+                downloadId => {
+                    // slot stays claimed until onChanged fires with complete/interrupted
+                    downloadIdToDbId.set(downloadId, dbId);
+                },
+                () => {
+                    console.error(`download failed; filename: '${filename}', url: '${url}'`);
+                    setDbState(dbId, 0); // back to pending
+                    activeDownloads--;
+                    downloadNext();
+                }
+            );
+    } else if (downloadAttachments) {
+        console.info("Downloading attachment", {filename, url});
+        browser.tabs.create({ active: false, url });
+        setDbState(dbId, 1);
+        activeDownloads--;
+        downloadNext();
+    } else {
+        console.info(`Attachment skipped (downloadAttachments: false)`, {filename, url});
+        setDbState(dbId, 1);
+        activeDownloads--;
+        downloadNext();
+    }
+}

@@ -9,7 +9,8 @@ function registerCreator(name) {
 		return;
 	}
 	
-	knownCreators[name] = contentCollectionEnabled;
+	// greedy: new creators are enabled by default; selective: require explicit opt-in
+	knownCreators[name] = (collectionMode === "greedy");
 
 	updateSettingsStorage();
 }

@@ -136,9 +136,16 @@
 			<span><strong>Error</strong>: Your current configuration could not be loaded. It is uncertain if the settings below this message will work correctly. Please excuse the inconvenience and consider filing in a bug report at <a href="https://github.com/dogpixels/patreon-helper/issues" target="_blank">https://github.com/dogpixels/patreon-helper/issues</a>.</span>
 		</article>
 		<article>
+			<label style="cursor: default;">
+				<span><strong>Collection Mode</strong>: Controls how Patreon Helper decides which creators to collect media from.</span>
+			</label>
 			<label>
-				<input type="checkbox" id="contentCollectionEnabledCheckbox" name="contentCollectionEnabledCheckbox" />
-				<span><strong>Enable Content Collection</strong>: While checked, Patreon Helper will gather media to download as you browse Patreon. Additionally, you may uncheck individual content creators below to exclude them from content collection specifically.</span>
+				<input type="radio" name="collectionMode" id="collectionModeGreedy" value="greedy" />
+				<span><strong>Greedy</strong>: Collect media from all creators automatically. Individual creators can be disabled below.</span>
+			</label>
+			<label>
+				<input type="radio" name="collectionMode" id="collectionModeSelective" value="selective" />
+				<span><strong>Selective</strong>: Only collect media from creators you explicitly enable via the browser popup.</span>
 			</label>
 			<ul id="contentCollectionKnownCreators"></ul>
 		</article>
@@ -156,10 +163,15 @@
 		</article>
 		<article>
 			<label>
-				<span><strong>Download Interval</strong>: Interval (in milliseconds), in which to download queued media from Patreon. This interval should be higher than how long your media downloads usually take; e.g., if you regularly download large files and the download takes up to 5 seconds, an interval of at least 6000 milliseconds is recommended. Generally speaking: the higher, the safer.</span>
-				<p></p>
-				<input type="number" id="downloadInterval" name="downloadInterval" min="3000" max="2147483647" /> ms
+				<span><strong>Reset Download History</strong>: Mark files as not yet downloaded so Patreon Helper will re-download them the next time you browse that creator's page. Select a specific creator or reset everything.</span>
 			</label>
+			<div style="padding: 0 8px 16px; display: flex; gap: 8px; align-items: center;">
+				<select id="resetCreatorSelect" style="flex: 1; padding: 4px;">
+					<option value="__all__">— All Creators —</option>
+				</select>
+				<button type="button" id="resetDownloadHistoryButton">Reset</button>
+			</div>
+			<span id="resetFeedback" style="padding: 0 8px 8px; display: none; color: rgb(232, 91, 70);"></span>
 		</article>
 		<article>
 			<label>
@@ -168,6 +180,14 @@
 			</label>
 			<button type="button" id="logCopy">copy to clipboard</button>
 			<textarea id="logCache" disabled></textarea>
+		</article>
+		<article>
+			<label style="cursor: default;">
+				<span><strong>Clear all data &amp; settings</strong>: Deletes the entire download history, all known creators, and resets all settings to their defaults. The extension will reload automatically.</span>
+			</label>
+			<div style="padding: 0 8px 16px;">
+				<button type="button" id="clearAllButton" style="background-color: #c0392b; width: auto; padding: 6px 16px;">Clear all data &amp; settings</button>
+			</div>
 		</article>
 	</main>
     <script src="js/options.js"></script>

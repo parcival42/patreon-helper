@@ -8,25 +8,25 @@ var useLostAndFoundCheckbox = document.getElementById("useLostAndFound");
 var debugCheckbox = document.getElementById("debug");
 var logCache = document.getElementById("logCache");
 var logCopyButton = document.getElementById("logCopy");
-var downloadIntervalInput = document.getElementById("downloadInterval");
-var contentCollectionEnabledCheckbox = document.getElementById("contentCollectionEnabledCheckbox");
+var collectionModeGreedy = document.getElementById("collectionModeGreedy");
+var collectionModeSelective = document.getElementById("collectionModeSelective");
 var contentCollectionKnownCreators = document.getElementById("contentCollectionKnownCreators");
+var resetCreatorSelect = document.getElementById("resetCreatorSelect");
+var resetDownloadHistoryButton = document.getElementById("resetDownloadHistoryButton");
+var resetFeedback = document.getElementById("resetFeedback");
+var clearAllButton = document.getElementById("clearAllButton");
 // var contentCollectionClearKnownCreatorsButton = document.getElementById("contentCollectionClearKnownCreators");
 
 browser.runtime.getBackgroundPage().then((backgroundContext) => {
 	downloadAttachmentsCheckbox.checked = backgroundContext.downloadAttachments;
 	useLostAndFoundCheckbox.checked = backgroundContext.useLostAndFound;
 	debugCheckbox.checked = backgroundContext.debug;
-	downloadIntervalInput.value = backgroundContext.downloadInterval;
-	contentCollectionEnabledCheckbox.checked = backgroundContext.contentCollectionEnabled;
+	(backgroundContext.collectionMode === "selective" ? collectionModeSelective : collectionModeGreedy).checked = true;
+	contentCollectionKnownCreators.classList.add('open');
 
 	// open log accordion if debug is enabled
 	if (debugCheckbox.checked)
 		logCache.classList.add('open');
-
-	// open known creators list accordion if content collection is enabled
-	if (contentCollectionEnabledCheckbox.checked)
-		contentCollectionKnownCreators.classList.add('open');
 
 	downloadAttachmentsCheckbox.addEventListener('change', (event) => {
 		backgroundContext.downloadAttachments = event.target.checked;
@@ -52,23 +52,12 @@ browser.runtime.getBackgroundPage().then((backgroundContext) => {
 		navigator.clipboard.writeText(logCache.value);
 	});
 
-	downloadIntervalInput.addEventListener('change', (event) => {
-		event.target.value = Math.max(event.target.value, 3000);
-		event.target.value = Math.min(event.target.value, 2147483647); // signed 32 bit int
 
-		backgroundContext.downloadInterval = event.target.value;
-		backgroundContext.initializeDownloadInterval();
-		backgroundContext.updateSettingsStorage();
-	});
-
-	contentCollectionEnabledCheckbox.addEventListener('change', (event) => {
-		backgroundContext.contentCollectionEnabled = event.target.checked;
-		backgroundContext.updateSettingsStorage();
-
-		if (event.target.checked)
-			contentCollectionKnownCreators.classList.add('open');
-		else
-			contentCollectionKnownCreators.classList.remove('open');
+	[collectionModeGreedy, collectionModeSelective].forEach(radio => {
+		radio.addEventListener('change', (event) => {
+			backgroundContext.collectionMode = event.target.value;
+			backgroundContext.updateSettingsStorage();
+		});
 	});
 
 	// update log window contents
@@ -76,42 +65,86 @@ browser.runtime.getBackgroundPage().then((backgroundContext) => {
 		logCache.textContent = backgroundContext.log_content;
 	}, 1000);
 
+	resetDownloadHistoryButton.addEventListener('click', () => {
+		let creator = resetCreatorSelect.value;
+		let db = backgroundContext.db;
+		let store = db.transaction("downloads", "readwrite").objectStore("downloads");
+		let count = 0;
+
+		let cursorRequest = creator === "__all__"
+			? store.openCursor()
+			: store.index("filename").openCursor(IDBKeyRange.bound(`patreon/${creator}/`, `patreon/${creator}/￿`));
+
+		cursorRequest.onsuccess = (event) => {
+			let cursor = event.target.result;
+			if (!cursor) {
+				let label = creator === "__all__" ? "all creators" : `"${creator}"`;
+				resetFeedback.textContent = `Reset ${count} file(s) for ${label}.`;
+				resetFeedback.style.display = "block";
+				setTimeout(() => { resetFeedback.style.display = "none"; }, 4000);
+				// kick off the download queue — reset items won't trigger it automatically
+				for (let i = 0; i < backgroundContext.concurrentDownloads; i++)
+					backgroundContext.downloadNext();
+				return;
+			}
+			if (cursor.value.state === 1) {
+				cursor.value.state = 0;
+				cursor.update(cursor.value);
+				count++;
+			}
+			cursor.continue();
+		};
+	});
+
 	// update known creators list
 	setInterval(() => {
 		contentCollectionKnownCreators.innerText = "";
+
+		// sync reset dropdown with known creators
+		let currentSelection = resetCreatorSelect.value;
+		while (resetCreatorSelect.options.length > 1) resetCreatorSelect.remove(1);
 		for (const name in backgroundContext.knownCreators) {
+			let opt = document.createElement('option');
+			opt.value = name;
+			opt.textContent = name;
+			if (name === currentSelection) opt.selected = true;
+			resetCreatorSelect.appendChild(opt);
+		}
+
+		let isSelective = backgroundContext.collectionMode === "selective";
+
+		for (const name in backgroundContext.knownCreators) {
+			let enabled = backgroundContext.knownCreators[name] === true;
+
+
 			let li = document.createElement('li');
 			let label = document.createElement('label');
 			let div = document.createElement('div');
 			let input = document.createElement('input');
 			let span = document.createElement('span');
 
-			// label.innerHTML = `<input type="checkbox"${backgroundContext.knownCreators[name]? ' checked="checked"' : ''} /><span>${name}</span>`;
 			input.type = 'checkbox';
-			if (backgroundContext.knownCreators[name] === true) {
-				input.checked = true;
-			}
+			input.checked = enabled;
 
 			span.innerText = name;
-			
+
 			label.addEventListener('change', (e) => {
 				if (backgroundContext.knownCreators.hasOwnProperty(name)) {
 					backgroundContext.knownCreators[name] = e.target.checked;
 					backgroundContext.updateSettingsStorage();
 				}
 			});
-			
+
 			div.classList.add('delete-button');
-			div.addEventListener('click', (e) => {
+			div.addEventListener('click', () => {
 				if (backgroundContext.knownCreators.hasOwnProperty(name)) {
 					delete backgroundContext.knownCreators[name];
 					backgroundContext.updateSettingsStorage();
+				} else {
+					console.error(`User tried to delete creator "${name}", which was not part of knownCreators.`);
 				}
-				else {
-					console.error(`User tried to delete creator "${name}", which was not part of knownCreators.`)
-				}
-			})
-			
+			});
+
 			label.appendChild(input);
 			label.appendChild(span);
 			li.appendChild(label);
@@ -119,6 +152,24 @@ browser.runtime.getBackgroundPage().then((backgroundContext) => {
 			contentCollectionKnownCreators.appendChild(li);
 		}
 	}, 1000);
+
+	clearAllButton.addEventListener('click', () => {
+		if (!window.confirm('This will delete the entire download history, all known creators, and reset all settings to default. Continue?'))
+			return;
+
+		backgroundContext.db.transaction("downloads", "readwrite").objectStore("downloads").clear();
+
+		backgroundContext.knownCreators = {};
+		backgroundContext.downloadAttachments = true;
+		backgroundContext.useLostAndFound = true;
+		backgroundContext.collectionMode = "greedy";
+		backgroundContext.concurrentDownloads = 1;
+		backgroundContext.activeDownloads = 0;
+
+		browser.storage.local.clear().then(() => {
+			browser.runtime.reload();
+		});
+	});
 
 }, (error) => {
 	console.error("error loading background context:", error);
