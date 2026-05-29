@@ -3,6 +3,7 @@ browser.runtime.getBackgroundPage().then(bg => {
 	const pendingCountEl = document.getElementById('pendingCount');
 	const toggleCreatorBtn = document.getElementById('toggleCreatorButton');
 	const concurrentDownloadsInput = document.getElementById('concurrentDownloadsInput');
+	const openSettingsPageEl = document.getElementById('openSettingsPageLink');
 
 	function updateCreator() {
 		let creator = bg.pageCreator;
@@ -51,6 +52,11 @@ browser.runtime.getBackgroundPage().then(bg => {
 		browser.tabs.query({active: true, currentWindow: true}).then(tabs => {
 			if (tabs[0]) browser.tabs.reload(tabs[0].id);
 		});
+	});
+
+	openSettingsPageEl.addEventListener('click', () => {
+		browser.runtime.openOptionsPage();
+		window.close(); // close popup
 	});
 
 	browser.tabs.query({active: true, currentWindow: true}).then(tabs => {
