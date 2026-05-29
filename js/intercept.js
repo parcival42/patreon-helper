@@ -300,25 +300,29 @@ async function addToDownloads(creator, filename, url) {
 
     let identifier = determineFileIdentifier(filename, url);
 
-    let count = db.transaction("downloads").objectStore("downloads").index("identifier").count(IDBKeyRange.only(identifier));
+    let store = db.transaction("downloads", "readwrite").objectStore("downloads");
+    let getRequest = store.index("identifier").get(IDBKeyRange.only(identifier));
 
-    count.onsuccess = () => {
-        if (count.result == 0) {
+    getRequest.onsuccess = () => {
+        let record = getRequest.result;
+
+        if (!record) {
             console.info(`adding to database; identifier: '${identifier}', filename: '${filename}', url: '${url}'`);
-
-            let op = db.transaction("downloads", "readwrite").objectStore("downloads").add({
-                identifier: identifier,
-                filename: filename,
-                url: url,
-                state: 0
-            });
-
+            let op = store.add({ identifier, filename, url, state: 0 });
             op.onsuccess = () => downloadNext();
             op.onerror = () => {
                 console.error(`error adding to database; identifier: '${identifier}', filename: '${filename}', url: '${url}'`);
             };
+        } else if (record.state === 3 && record.url !== url) {
+            // previously failed, but Patreon provided a fresh url — update and retry
+            console.info(`previously failed, fresh url detected — resetting; identifier: '${identifier}'`);
+            record.url = url;
+            record.state = 0;
+            let op = store.put(record);
+            op.onsuccess = () => downloadNext();
         } else {
-            console.warn(`skipped; already in database; identifier: '${identifier}'`);
+            // already known (pending, in-progress, done, or failed with same url) — skip
+            console.warn(`skipped; already in database; identifier: '${identifier}', state: ${record.state}`);
         }
     };
 }

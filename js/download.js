@@ -49,12 +49,13 @@ browser.downloads.onChanged.addListener(delta => {
     let dbId = downloadIdToDbId.get(delta.id);
     downloadIdToDbId.delete(delta.id);
 
-    let success = state === 'complete';
+    // complete → done (1), interrupted → failed (3); state 3 won't be retried automatically
+    let newState = state === 'complete' ? 1 : 3;
     let store = db.transaction("downloads", "readwrite").objectStore("downloads");
     store.get(dbId).onsuccess = e => {
         let record = e.target.result;
         if (record) {
-            record.state = success ? 1 : 0;
+            record.state = newState;
             store.put(record);
         }
     };
@@ -103,7 +104,7 @@ function startDownload(filename, url, dbId) {
                 },
                 () => {
                     console.error(`download failed; filename: '${filename}', url: '${url}'`);
-                    setDbState(dbId, 0); // back to pending
+                    setDbState(dbId, 3);
                     activeDownloads--;
                     downloadNext();
                 }

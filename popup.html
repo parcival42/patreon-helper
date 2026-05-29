@@ -40,6 +40,7 @@
 		}
 		.badge.pending { background: rgb(255, 220, 100); }
 		.badge.done { background: #c8f0c8; }
+		.badge.failed { background: #f5c6c2; }
 		label.toggle {
 			display: flex;
 			align-items: center;
@@ -125,6 +126,13 @@
 		<div class="row">
 			<span class="label">Pending downloads</span>
 			<span class="badge pending" id="pendingCount">…</span>
+		</div>
+		<div class="row">
+			<span class="label">Failed downloads</span>
+			<span style="display:flex;align-items:center;gap:6px;">
+				<span class="badge failed" id="failedCount">…</span>
+				<button id="clearFailedButton" style="width:auto;margin-top:0;padding:2px 8px;font-size:12px;">Clear</button>
+			</span>
 		</div>
 	</section>
 
