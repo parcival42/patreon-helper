@@ -82,6 +82,9 @@ browser.runtime.getBackgroundPage().then((backgroundContext) => {
 				resetFeedback.textContent = `Reset ${count} file(s) for ${label}.`;
 				resetFeedback.style.display = "block";
 				setTimeout(() => { resetFeedback.style.display = "none"; }, 4000);
+				// kick off the download queue — reset items won't trigger it automatically
+				for (let i = 0; i < backgroundContext.concurrentDownloads; i++)
+					backgroundContext.downloadNext();
 				return;
 			}
 			if (cursor.value.state === 1) {
