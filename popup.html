@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<style>
+		* { box-sizing: border-box; margin: 0; padding: 0; }
+		body {
+			width: 280px;
+			font-family: sans-serif;
+			font-size: 13px;
+			color: #222;
+		}
+		header {
+			background-color: rgb(232, 91, 70);
+			color: #fff;
+			padding: 10px 12px;
+			font-weight: bold;
+			font-size: 14px;
+		}
+		section {
+			padding: 10px 12px;
+			border-bottom: 1px solid #eee;
+		}
+		.row {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			margin-bottom: 4px;
+		}
+		.row:last-child { margin-bottom: 0; }
+		.label { color: #888; }
+		.value { font-weight: bold; }
+		.value.unknown { color: #bbb; font-weight: normal; font-style: italic; }
+		.badge {
+			display: inline-block;
+			background: #eee;
+			border-radius: 10px;
+			padding: 1px 8px;
+			font-size: 12px;
+		}
+		.badge.pending { background: rgb(255, 220, 100); }
+		.badge.done { background: #c8f0c8; }
+		label.toggle {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			cursor: pointer;
+		}
+		.input-row {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			margin-bottom: 8px;
+		}
+		.input-row:last-child { margin-bottom: 0; }
+		.input-row input {
+			width: 80px;
+			padding: 3px 6px;
+			border: 1px solid #ccc;
+			border-radius: 4px;
+			font-size: 13px;
+			text-align: right;
+		}
+		.unit { color: #888; font-size: 12px; margin-left: 4px; }
+		button {
+			width: 100%;
+			padding: 7px;
+			margin-top: 6px;
+			background-color: rgb(232, 91, 70);
+			color: #fff;
+			border: none;
+			border-radius: 4px;
+			cursor: pointer;
+			font-size: 13px;
+		}
+		button:hover { background-color: rgb(200, 70, 50); }
+		button:disabled {
+			background-color: #ccc;
+			cursor: default;
+		}
+		button.secondary {
+			background-color: #aaa;
+		}
+		button.secondary:hover { background-color: #888; }
+		button.danger {
+			background-color: #c0392b;
+		}
+		button.danger:hover { background-color: #922b21; }
+		#feedback {
+			display: none;
+			margin-top: 8px;
+			padding: 6px 8px;
+			background: #f0f0f0;
+			border-radius: 4px;
+			font-size: 12px;
+			color: #555;
+		}
+	</style>
+</head>
+<body>
+	<header>Patreon Helper</header>
+
+	<section>
+		<div class="row">
+			<span class="label">Current creator</span>
+			<span class="value unknown" id="currentCreator">not detected</span>
+		</div>
+		<button id="toggleCreatorButton" disabled style="margin-top: 6px;">No creator detected</button>
+	</section>
+
+	<section>
+		<div class="row">
+			<span class="label">Pending downloads</span>
+			<span class="badge pending" id="pendingCount">…</span>
+		</div>
+		<div class="row">
+			<span class="label">Downloaded</span>
+			<span class="badge done" id="doneCount">…</span>
+		</div>
+	</section>
+
+	<section>
+		<div class="input-row">
+			<span class="label">Parallel downloads</span>
+			<span>
+				<input type="number" id="concurrentDownloadsInput" min="1" max="4" />
+			</span>
+		</div>
+	</section>
+
+	<section>
+		<button id="resetCreatorButton" disabled>Reset current creator</button>
+		<button id="resetAllButton" class="secondary">Reset all creators</button>
+		<div id="feedback"></div>
+	</section>
+
+	<section>
+		<button id="clearAllButton" class="danger">Clear all data &amp; settings</button>
+	</section>
+
+	<script src="js/popup.js"></script>
+</body>
+</html>

@@ -9,7 +9,7 @@ function registerCreator(name) {
 		return;
 	}
 	
-	knownCreators[name] = contentCollectionEnabled;
+	knownCreators[name] = (collectionMode === "greedy");
 
 	updateSettingsStorage();
 }
