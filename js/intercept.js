@@ -7,8 +7,45 @@ var streamUrls = [
     '*://*.patreon.com/api/stream*',
     '*://*.patreon.com/api/posts*'
 ];
-var postsNameRegex = /\/join\/(\w+)\/checkout*/;
 var identifierRegex = /\/post\/\d*\/(\w*)\/|file\?(h\=\d*\&i\=\w*)/;
+
+// extracts the creator's vanity slug from any patreon profile/checkout/join url
+function extractVanityFromUrl(url) {
+    if (!url) return null;
+    let m;
+    if ((m = /patreon\.com\/checkout\/([^/?#]+)/.exec(url)) !== null) return m[1];
+    if ((m = /patreon\.com\/([^/?#]+)\/join\b/.exec(url)) !== null) return m[1];
+    if ((m = /patreon\.com\/(?:c|cw)\/([^/?#]+)/.exec(url)) !== null) return m[1];
+    return null;
+}
+
+// resolves the included entry (e.g. campaign, user) a post points to via relationships
+function findIncluded(response, post, type) {
+    if (!response.included || !post.relationships ||
+        !post.relationships[type] || !post.relationships[type].data) return null;
+    let id = post.relationships[type].data.id;
+    return response.included.find(i => i.type === type && i.id === id) || null;
+}
+
+// determines the creator name for a post, preferring the stable vanity slug
+function resolveCreatorName(post, response) {
+    let campaign = findIncluded(response, post, 'campaign');
+    let user = findIncluded(response, post, 'user');
+
+    // prefer the vanity slug: from the linked campaign/user, else from the post's own urls
+    let vanity = extractVanityFromUrl(campaign && campaign.attributes && campaign.attributes.url)
+        || extractVanityFromUrl(user && user.attributes && user.attributes.url)
+        || extractVanityFromUrl(post.attributes && post.attributes.upgrade_url)
+        || extractVanityFromUrl(post.attributes && post.attributes.pledge_url);
+    if (vanity) return vanity;
+
+    // fall back to the display name if no vanity slug is available anywhere
+    if (campaign && campaign.attributes && campaign.attributes.name) return campaign.attributes.name;
+    if (user && user.attributes && user.attributes.full_name) return user.attributes.full_name;
+
+    // last resort: the creator detected from the page url, else unknown
+    return pageCreator ? pageCreator : unknownCreator;
+}
 
 var db;
 var names = {};
@@ -74,14 +111,9 @@ function extractDownloadInfo(response) {
                 data.attributes.post_file.hasOwnProperty('url')
             ) {
                 console.log(`'post_file' found in post`);
-                let match;
-                let name = pageCreator? pageCreator : unknownCreator;
+                let name = resolveCreatorName(data, response);
+                console.log(`resolved creator name: `, name);
 
-                if (data.attributes.hasOwnProperty('upgrade_url') && (match = postsNameRegex.exec(data.attributes.upgrade_url)) !== null) {
-                    console.log(`trying to find creator; matching against data.attributes.upgrade_url: `, data.attributes.upgrade_url);
-                    name = match[1];
-                }
-                
                 console.log("found media on post:", {
                     name: name,
                     file: data.attributes.post_file.name,
