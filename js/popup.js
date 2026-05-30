@@ -1,6 +1,8 @@
 browser.runtime.getBackgroundPage().then(bg => {
 	const currentCreatorEl = document.getElementById('currentCreator');
 	const pendingCountEl = document.getElementById('pendingCount');
+	const failedCountEl = document.getElementById('failedCount');
+	const clearFailedButton = document.getElementById('clearFailedButton');
 	const toggleCreatorBtn = document.getElementById('toggleCreatorButton');
 	const concurrentDownloadsInput = document.getElementById('concurrentDownloadsInput');
 	const openSettingsPageEl = document.getElementById('openSettingsPageLink');
@@ -30,7 +32,23 @@ browser.runtime.getBackgroundPage().then(bg => {
 		index.count(IDBKeyRange.only(0)).onsuccess = e => {
 			pendingCountEl.textContent = e.target.result;
 		};
+		index.count(IDBKeyRange.only(3)).onsuccess = e => {
+			failedCountEl.textContent = e.target.result;
+			clearFailedButton.disabled = e.target.result === 0;
+		};
 	}
+
+	// state 3 is self-healing — intercept.js resets it automatically when Patreon serves a fresh url on the next visit;
+	// Clear removes entries manually so they can be re-collected from scratch
+	clearFailedButton.addEventListener('click', () => {
+		let store = bg.db.transaction("downloads", "readwrite").objectStore("downloads");
+		store.index("state").openCursor(IDBKeyRange.only(3)).onsuccess = e => {
+			let cursor = e.target.result;
+			if (!cursor) { updateStats(); return; }
+			cursor.delete();
+			cursor.continue();
+		};
+	});
 
 	concurrentDownloadsInput.value = bg.concurrentDownloads;
 	concurrentDownloadsInput.addEventListener('change', e => {
