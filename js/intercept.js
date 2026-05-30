@@ -27,19 +27,29 @@ function findIncluded(response, post, type) {
     return response.included.find(i => i.type === type && i.id === id) || null;
 }
 
+// extracts the vanity slug from a campaign's canonical profile url, which is a bare
+// patreon.com/<slug> with nothing following the slug (anchored to the url's end)
+function extractCampaignVanity(campaign) {
+    let url = campaign && campaign.attributes && campaign.attributes.url;
+    if (!url) return null;
+    let m = /patreon\.com\/([^/?#]+)\/?$/.exec(url);
+    return m ? m[1] : null;
+}
+
 // determines the creator name for a post, preferring the stable vanity slug
 function resolveCreatorName(post, response) {
     let campaign = findIncluded(response, post, 'campaign');
     let user = findIncluded(response, post, 'user');
 
-    // prefer the vanity slug: from the linked campaign/user, else from the post's own urls
-    let vanity = extractVanityFromUrl(campaign && campaign.attributes && campaign.attributes.url)
-        || extractVanityFromUrl(user && user.attributes && user.attributes.url)
-        || extractVanityFromUrl(post.attributes && post.attributes.upgrade_url)
-        || extractVanityFromUrl(post.attributes && post.attributes.pledge_url);
+    // prefer the vanity slug: post checkout urls first (always present on the post),
+    // then the linked campaign's canonical profile url (only present when sideloaded)
+    let vanity = extractVanityFromUrl(post.attributes && post.attributes.upgrade_url)
+        || extractVanityFromUrl(post.attributes && post.attributes.pledge_url)
+        || extractCampaignVanity(campaign);
     if (vanity) return vanity;
 
-    // fall back to the display name if no vanity slug is available anywhere
+    // fall back to a display name if no vanity slug is available anywhere — still
+    // better than unknown (campaign name preferred, then the post author's user)
     if (campaign && campaign.attributes && campaign.attributes.name) return campaign.attributes.name;
     if (user && user.attributes && user.attributes.full_name) return user.attributes.full_name;
 
