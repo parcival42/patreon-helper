@@ -154,13 +154,13 @@
 		</article>
 		<article>
 			<label>
-				<span><strong>Reset Download History</strong>: Mark files as not yet downloaded so Patreon Helper will re-download them the next time you browse that creator's page. Select a specific creator or reset everything.</span>
+				<span><strong>Reset Download History</strong>: Forget that files were already downloaded so Patreon Helper will re-download them the next time you browse that creator's page. The stored entries are removed (not just re-flagged), so the file is re-fetched with a fresh URL. Select a specific creator or reset everything.</span>
 			</label>
 			<div style="padding: 0 8px 16px; display: flex; gap: 8px; align-items: center;">
 				<select id="resetCreatorSelect" style="flex: 1; padding: 4px;">
 					<option value="__all__">— All Creators —</option>
 				</select>
-				<button type="button" id="resetDownloadHistoryButton">Reset</button>
+				<button type="button" id="resetDownloadHistoryButton">Clear History</button>
 			</div>
 			<span id="resetFeedback" style="padding: 0 8px 8px; display: none; color: rgb(232, 91, 70);"></span>
 		</article>
