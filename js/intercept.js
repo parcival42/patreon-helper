@@ -102,17 +102,24 @@ function extractDownloadInfo(response) {
     if (response.hasOwnProperty('data')) { // /api/posts
         console.log(`'data' found in response`);
         response.data.forEach(data => {
+            if (data.type != "post" || !data.hasOwnProperty('attributes')) {
+                return;
+            }
+
+            // resolve the creator name for every post up front, so secondary media can
+            // still be attributed even when the post carries no downloadable post_file
+            // (e.g. collection feeds, where post_file lacks a 'name' and the real images
+            // arrive separately via the 'included' array, looked up through names[])
+            let name = resolveCreatorName(data, response);
+            console.log(`resolved creator name: `, name);
+
             if (
-                data.type == "post" &&
-                data.hasOwnProperty('attributes') &&
                 data.attributes.hasOwnProperty('post_file') &&
                 data.attributes.post_file && // might be null
                 data.attributes.post_file.hasOwnProperty('name') &&
                 data.attributes.post_file.hasOwnProperty('url')
             ) {
                 console.log(`'post_file' found in post`);
-                let name = resolveCreatorName(data, response);
-                console.log(`resolved creator name: `, name);
 
                 console.log("found media on post:", {
                     name: name,
@@ -132,84 +139,84 @@ function extractDownloadInfo(response) {
                 else {
                     addToDownloads(name, downloadPrefix + name + "/" + data.attributes.post_file.name, data.attributes.post_file.url);
                 }
+            }
 
-                /* search post text for media links */
-                if (data.attributes.hasOwnProperty('content') && data.attributes.content != null) {
-                    console.log(`'content' found in post response; searching for media links; data.attributes.content:`, data.attributes.content);
-                    findMediaUrls(data.attributes.content).forEach(url => {
-                        console.info(`url found in post content, url:`, url);
-                        addToDownloads(name, downloadPrefix + name + "/" + url.split('/').pop().split('#')[0].split('?')[0], url);
-                    });
-                }
+            /* search post text for media links */
+            if (data.attributes.hasOwnProperty('content') && data.attributes.content != null) {
+                console.log(`'content' found in post response; searching for media links; data.attributes.content:`, data.attributes.content);
+                findMediaUrls(data.attributes.content).forEach(url => {
+                    console.info(`url found in post content, url:`, url);
+                    addToDownloads(name, downloadPrefix + name + "/" + url.split('/').pop().split('#')[0].split('?')[0], url);
+                });
+            }
 
-                // note content creator name for secondary media (post has multiple media)
+            // note content creator name for secondary media (post has multiple media)
+            if (
+                data.attributes.hasOwnProperty('post_metadata') &&
+                data.attributes.post_metadata &&
+                data.attributes.post_metadata.hasOwnProperty('image_order') &&
+                data.attributes.post_metadata.image_order
+            ) {
+                console.log(`'post_metadata' found in response; image_order:`, data.attributes.post_metadata.image_order);
+                data.attributes.post_metadata.image_order.forEach(id => {
+                    names[id] = name;
+                });
+            }
+
+            // note content creator name for attachments
+            if (
+                data.hasOwnProperty('relationships') &&
+                data.relationships
+            ) {
                 if (
-                    data.attributes.hasOwnProperty('post_metadata') &&
-                    data.attributes.post_metadata &&
-                    data.attributes.post_metadata.hasOwnProperty('image_order') &&
-                    data.attributes.post_metadata.image_order
+                    data.relationships.hasOwnProperty('images') &&
+                    data.relationships.images &&
+                    data.relationships.images.hasOwnProperty('data') &&
+                    data.relationships.images.data
                 ) {
-                    console.log(`'post_metadata' found in response; image_order:`, data.attributes.post_metadata.image_order);
-                    data.attributes.post_metadata.image_order.forEach(id => {
-                        names[id] = name;
-                    });
+                    console.log(`'images' found in response post relationships; images:`, data.relationships.images.data);
+                    if (Array.isArray(data.relationships.images.data)) {
+                        data.relationships.images.data.forEach(dat => {
+                            names[dat.id] = name;
+                        });
+                    } else if (data.relationships.images.data.hasOwnProperty('id')) {
+                            names[data.relationships.images.data.id] = name;
+                    } else {
+                        console.error(`could not handle images in resounse post relationship; images.data: `, data.relationships.images.data);
+                    }
                 }
-
-                // note content creator name for attachments
                 if (
-                    data.hasOwnProperty('relationships') &&
-                    data.relationships
+                    data.relationships.hasOwnProperty('audio') &&
+                    data.relationships.audio &&
+                    data.relationships.audio.hasOwnProperty('data') &&
+                    data.relationships.audio.data
                 ) {
-                    if (
-                        data.relationships.hasOwnProperty('images') &&
-                        data.relationships.images &&
-                        data.relationships.images.hasOwnProperty('data') &&
-                        data.relationships.images.data
-                    ) {
-                        console.log(`'images' found in response post relationships; images:`, data.relationships.images.data);
-                        if (Array.isArray(data.relationships.images.data)) {
-                            data.relationships.images.data.forEach(dat => {
-                                names[dat.id] = name;
-                            });
-                        } else if (data.relationships.images.data.hasOwnProperty('id')) {
-                                names[data.relationships.images.data.id] = name;
-                        } else {
-                            console.error(`could not handle images in resounse post relationship; images.data: `, data.relationships.images.data);
-                        }
+                    console.log(`'audio' found in response post relationships; audios:`, data.relationships.audio.data);
+                    if (Array.isArray(data.relationships.audio.data)) {
+                        data.relationships.audio.data.forEach(dat => {
+                            names[dat.id] = name;
+                        });
+                    } else if (data.relationships.audio.data.hasOwnProperty('id')) {
+                            names[data.relationships.audio.data.id] = name;
+                    } else {
+                        console.error(`could not handle audio in resounse post relationship; audio.data: `, data.relationships.audio.data);
                     }
-                    if (
-                        data.relationships.hasOwnProperty('audio') &&
-                        data.relationships.audio &&
-                        data.relationships.audio.hasOwnProperty('data') &&
-                        data.relationships.audio.data
-                    ) {
-                        console.log(`'audio' found in response post relationships; audios:`, data.relationships.audio.data);
-                        if (Array.isArray(data.relationships.audio.data)) {
-                            data.relationships.audio.data.forEach(dat => {
-                                names[dat.id] = name;
-                            });
-                        } else if (data.relationships.audio.data.hasOwnProperty('id')) {
-                                names[data.relationships.audio.data.id] = name;
-                        } else {
-                            console.error(`could not handle audio in resounse post relationship; audio.data: `, data.relationships.audio.data);
-                        }
-                    }
-                    if (
-                        data.relationships.hasOwnProperty('attachments') &&
-                        data.relationships.attachments &&
-                        data.relationships.attachments.hasOwnProperty('data') &&
-                        data.relationships.attachments.data
-                    ) {
-                        console.log(`attachments found in response post relationship: attachments:`, data.relationships.attachments.data);
-                        if (Array.isArray(data.relationships.attachments.data)) {
-                            data.relationships.attachments.data.forEach(dat => {
-                                names[dat.id] = name;
-                            });
-                        } else if (data.relationships.attachments.data.hasOwnProperty('id')) {
-                                names[data.relationships.attachments.data.id] = name;
-                        } else {
-                            exlog.error(`could not handle attachment in resounse post relationship; attachments.data: `, data.relationships.attachments.data);
-                        }
+                }
+                if (
+                    data.relationships.hasOwnProperty('attachments') &&
+                    data.relationships.attachments &&
+                    data.relationships.attachments.hasOwnProperty('data') &&
+                    data.relationships.attachments.data
+                ) {
+                    console.log(`attachments found in response post relationship: attachments:`, data.relationships.attachments.data);
+                    if (Array.isArray(data.relationships.attachments.data)) {
+                        data.relationships.attachments.data.forEach(dat => {
+                            names[dat.id] = name;
+                        });
+                    } else if (data.relationships.attachments.data.hasOwnProperty('id')) {
+                            names[data.relationships.attachments.data.id] = name;
+                    } else {
+                        exlog.error(`could not handle attachment in resounse post relationship; attachments.data: `, data.relationships.attachments.data);
                     }
                 }
             }
