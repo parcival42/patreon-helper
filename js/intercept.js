@@ -192,7 +192,7 @@ function extractDownloadInfo(response) {
                     } else if (data.relationships.images.data.hasOwnProperty('id')) {
                             names[data.relationships.images.data.id] = name;
                     } else {
-                        console.error(`could not handle images in resounse post relationship; images.data: `, data.relationships.images.data);
+                        console.error(`could not handle images in response post relationship; images.data: `, data.relationships.images.data);
                     }
                 }
                 if (
@@ -209,7 +209,7 @@ function extractDownloadInfo(response) {
                     } else if (data.relationships.audio.data.hasOwnProperty('id')) {
                             names[data.relationships.audio.data.id] = name;
                     } else {
-                        console.error(`could not handle audio in resounse post relationship; audio.data: `, data.relationships.audio.data);
+                        console.error(`could not handle audio in response post relationship; audio.data: `, data.relationships.audio.data);
                     }
                 }
                 if (
@@ -226,7 +226,7 @@ function extractDownloadInfo(response) {
                     } else if (data.relationships.attachments.data.hasOwnProperty('id')) {
                             names[data.relationships.attachments.data.id] = name;
                     } else {
-                        exlog.error(`could not handle attachment in resounse post relationship; attachments.data: `, data.relationships.attachments.data);
+                        exlog.error(`could not handle attachment in response post relationship; attachments.data: `, data.relationships.attachments.data);
                     }
                 }
             }
