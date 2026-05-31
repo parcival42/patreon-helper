@@ -79,17 +79,17 @@ browser.runtime.getBackgroundPage().then((backgroundContext) => {
 			let cursor = event.target.result;
 			if (!cursor) {
 				let label = creator === "__all__" ? "all creators" : `"${creator}"`;
-				resetFeedback.textContent = `Reset ${count} file(s) for ${label}.`;
+				resetFeedback.textContent = `Cleared ${count} file(s) from history for ${label}. They will be re-downloaded with a fresh URL the next time you browse them.`;
 				resetFeedback.style.display = "block";
 				setTimeout(() => { resetFeedback.style.display = "none"; }, 4000);
-				// kick off the download queue — reset items won't trigger it automatically
-				for (let i = 0; i < backgroundContext.concurrentDownloads; i++)
-					backgroundContext.downloadNext();
 				return;
 			}
-			if (cursor.value.state === 1) {
-				cursor.value.state = 0;
-				cursor.update(cursor.value);
+			// drop only finished (1) and failed (3) records; leave pending (0) and in-progress (2)
+			// so the active download queue isn't disturbed. removing the record (rather than resetting
+			// its state) means the stale, expired url is gone too — the next browse re-adds the file
+			// fresh via the !record branch in intercept.js, so no doomed download with a dead token.
+			if (cursor.value.state === 1 || cursor.value.state === 3) {
+				cursor.delete();
 				count++;
 			}
 			cursor.continue();
