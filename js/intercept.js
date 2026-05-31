@@ -7,8 +7,55 @@ var streamUrls = [
     '*://*.patreon.com/api/stream*',
     '*://*.patreon.com/api/posts*'
 ];
-var postsNameRegex = /\/join\/(\w+)\/checkout*/;
 var identifierRegex = /\/post\/\d*\/(\w*)\/|file\?(h\=\d*\&i\=\w*)/;
+
+// extracts the creator's vanity slug from any patreon profile/checkout/join url
+function extractVanityFromUrl(url) {
+    if (!url) return null;
+    let m;
+    if ((m = /patreon\.com\/checkout\/([^/?#]+)/.exec(url)) !== null) return m[1];
+    if ((m = /patreon\.com\/([^/?#]+)\/join\b/.exec(url)) !== null) return m[1];
+    if ((m = /patreon\.com\/(?:c|cw)\/([^/?#]+)/.exec(url)) !== null) return m[1];
+    return null;
+}
+
+// resolves the included entry (e.g. campaign, user) a post points to via relationships
+function findIncluded(response, post, type) {
+    if (!response.included || !post.relationships ||
+        !post.relationships[type] || !post.relationships[type].data) return null;
+    let id = post.relationships[type].data.id;
+    return response.included.find(i => i.type === type && i.id === id) || null;
+}
+
+// extracts the vanity slug from a campaign's canonical profile url, which is a bare
+// patreon.com/<slug> with nothing following the slug (anchored to the url's end)
+function extractCampaignVanity(campaign) {
+    let url = campaign && campaign.attributes && campaign.attributes.url;
+    if (!url) return null;
+    let m = /patreon\.com\/([^/?#]+)\/?$/.exec(url);
+    return m ? m[1] : null;
+}
+
+// determines the creator name for a post, preferring the stable vanity slug
+function resolveCreatorName(post, response) {
+    let campaign = findIncluded(response, post, 'campaign');
+    let user = findIncluded(response, post, 'user');
+
+    // prefer the vanity slug: post checkout urls first (always present on the post),
+    // then the linked campaign's canonical profile url (only present when sideloaded)
+    let vanity = extractVanityFromUrl(post.attributes && post.attributes.upgrade_url)
+        || extractVanityFromUrl(post.attributes && post.attributes.pledge_url)
+        || extractCampaignVanity(campaign);
+    if (vanity) return vanity;
+
+    // fall back to a display name if no vanity slug is available anywhere — still
+    // better than unknown (campaign name preferred, then the post author's user)
+    if (campaign && campaign.attributes && campaign.attributes.name) return campaign.attributes.name;
+    if (user && user.attributes && user.attributes.full_name) return user.attributes.full_name;
+
+    // last resort: the creator detected from the page url, else unknown
+    return pageCreator ? pageCreator : unknownCreator;
+}
 
 var db;
 var names = {};
@@ -65,23 +112,25 @@ function extractDownloadInfo(response) {
     if (response.hasOwnProperty('data')) { // /api/posts
         console.log(`'data' found in response`);
         response.data.forEach(data => {
+            if (data.type != "post" || !data.hasOwnProperty('attributes')) {
+                return;
+            }
+
+            // resolve the creator name for every post up front, so secondary media can
+            // still be attributed even when the post carries no downloadable post_file
+            // (e.g. collection feeds, where post_file lacks a 'name' and the real images
+            // arrive separately via the 'included' array, looked up through names[])
+            let name = resolveCreatorName(data, response);
+            console.log(`resolved creator name: `, name);
+
             if (
-                data.type == "post" &&
-                data.hasOwnProperty('attributes') &&
                 data.attributes.hasOwnProperty('post_file') &&
                 data.attributes.post_file && // might be null
                 data.attributes.post_file.hasOwnProperty('name') &&
                 data.attributes.post_file.hasOwnProperty('url')
             ) {
                 console.log(`'post_file' found in post`);
-                let match;
-                let name = pageCreator? pageCreator : unknownCreator;
 
-                if (data.attributes.hasOwnProperty('upgrade_url') && (match = postsNameRegex.exec(data.attributes.upgrade_url)) !== null) {
-                    console.log(`trying to find creator; matching against data.attributes.upgrade_url: `, data.attributes.upgrade_url);
-                    name = match[1];
-                }
-                
                 console.log("found media on post:", {
                     name: name,
                     file: data.attributes.post_file.name,
@@ -100,84 +149,84 @@ function extractDownloadInfo(response) {
                 else {
                     addToDownloads(name, downloadPrefix + name + "/" + data.attributes.post_file.name, data.attributes.post_file.url);
                 }
+            }
 
-                /* search post text for media links */
-                if (data.attributes.hasOwnProperty('content') && data.attributes.content != null) {
-                    console.log(`'content' found in post response; searching for media links; data.attributes.content:`, data.attributes.content);
-                    findMediaUrls(data.attributes.content).forEach(url => {
-                        console.info(`url found in post content, url:`, url);
-                        addToDownloads(name, downloadPrefix + name + "/" + url.split('/').pop().split('#')[0].split('?')[0], url);
-                    });
-                }
+            /* search post text for media links */
+            if (data.attributes.hasOwnProperty('content') && data.attributes.content != null) {
+                console.log(`'content' found in post response; searching for media links; data.attributes.content:`, data.attributes.content);
+                findMediaUrls(data.attributes.content).forEach(url => {
+                    console.info(`url found in post content, url:`, url);
+                    addToDownloads(name, downloadPrefix + name + "/" + url.split('/').pop().split('#')[0].split('?')[0], url);
+                });
+            }
 
-                // note content creator name for secondary media (post has multiple media)
+            // note content creator name for secondary media (post has multiple media)
+            if (
+                data.attributes.hasOwnProperty('post_metadata') &&
+                data.attributes.post_metadata &&
+                data.attributes.post_metadata.hasOwnProperty('image_order') &&
+                data.attributes.post_metadata.image_order
+            ) {
+                console.log(`'post_metadata' found in response; image_order:`, data.attributes.post_metadata.image_order);
+                data.attributes.post_metadata.image_order.forEach(id => {
+                    names[id] = name;
+                });
+            }
+
+            // note content creator name for attachments
+            if (
+                data.hasOwnProperty('relationships') &&
+                data.relationships
+            ) {
                 if (
-                    data.attributes.hasOwnProperty('post_metadata') &&
-                    data.attributes.post_metadata &&
-                    data.attributes.post_metadata.hasOwnProperty('image_order') &&
-                    data.attributes.post_metadata.image_order
+                    data.relationships.hasOwnProperty('images') &&
+                    data.relationships.images &&
+                    data.relationships.images.hasOwnProperty('data') &&
+                    data.relationships.images.data
                 ) {
-                    console.log(`'post_metadata' found in response; image_order:`, data.attributes.post_metadata.image_order);
-                    data.attributes.post_metadata.image_order.forEach(id => {
-                        names[id] = name;
-                    });
+                    console.log(`'images' found in response post relationships; images:`, data.relationships.images.data);
+                    if (Array.isArray(data.relationships.images.data)) {
+                        data.relationships.images.data.forEach(dat => {
+                            names[dat.id] = name;
+                        });
+                    } else if (data.relationships.images.data.hasOwnProperty('id')) {
+                            names[data.relationships.images.data.id] = name;
+                    } else {
+                        console.error(`could not handle images in resounse post relationship; images.data: `, data.relationships.images.data);
+                    }
                 }
-
-                // note content creator name for attachments
                 if (
-                    data.hasOwnProperty('relationships') &&
-                    data.relationships
+                    data.relationships.hasOwnProperty('audio') &&
+                    data.relationships.audio &&
+                    data.relationships.audio.hasOwnProperty('data') &&
+                    data.relationships.audio.data
                 ) {
-                    if (
-                        data.relationships.hasOwnProperty('images') &&
-                        data.relationships.images &&
-                        data.relationships.images.hasOwnProperty('data') &&
-                        data.relationships.images.data
-                    ) {
-                        console.log(`'images' found in response post relationships; images:`, data.relationships.images.data);
-                        if (Array.isArray(data.relationships.images.data)) {
-                            data.relationships.images.data.forEach(dat => {
-                                names[dat.id] = name;
-                            });
-                        } else if (data.relationships.images.data.hasOwnProperty('id')) {
-                                names[data.relationships.images.data.id] = name;
-                        } else {
-                            console.error(`could not handle images in resounse post relationship; images.data: `, data.relationships.images.data);
-                        }
+                    console.log(`'audio' found in response post relationships; audios:`, data.relationships.audio.data);
+                    if (Array.isArray(data.relationships.audio.data)) {
+                        data.relationships.audio.data.forEach(dat => {
+                            names[dat.id] = name;
+                        });
+                    } else if (data.relationships.audio.data.hasOwnProperty('id')) {
+                            names[data.relationships.audio.data.id] = name;
+                    } else {
+                        console.error(`could not handle audio in resounse post relationship; audio.data: `, data.relationships.audio.data);
                     }
-                    if (
-                        data.relationships.hasOwnProperty('audio') &&
-                        data.relationships.audio &&
-                        data.relationships.audio.hasOwnProperty('data') &&
-                        data.relationships.audio.data
-                    ) {
-                        console.log(`'audio' found in response post relationships; audios:`, data.relationships.audio.data);
-                        if (Array.isArray(data.relationships.audio.data)) {
-                            data.relationships.audio.data.forEach(dat => {
-                                names[dat.id] = name;
-                            });
-                        } else if (data.relationships.audio.data.hasOwnProperty('id')) {
-                                names[data.relationships.audio.data.id] = name;
-                        } else {
-                            console.error(`could not handle audio in resounse post relationship; audio.data: `, data.relationships.audio.data);
-                        }
-                    }
-                    if (
-                        data.relationships.hasOwnProperty('attachments') &&
-                        data.relationships.attachments &&
-                        data.relationships.attachments.hasOwnProperty('data') &&
-                        data.relationships.attachments.data
-                    ) {
-                        console.log(`attachments found in response post relationship: attachments:`, data.relationships.attachments.data);
-                        if (Array.isArray(data.relationships.attachments.data)) {
-                            data.relationships.attachments.data.forEach(dat => {
-                                names[dat.id] = name;
-                            });
-                        } else if (data.relationships.attachments.data.hasOwnProperty('id')) {
-                                names[data.relationships.attachments.data.id] = name;
-                        } else {
-                            exlog.error(`could not handle attachment in resounse post relationship; attachments.data: `, data.relationships.attachments.data);
-                        }
+                }
+                if (
+                    data.relationships.hasOwnProperty('attachments') &&
+                    data.relationships.attachments &&
+                    data.relationships.attachments.hasOwnProperty('data') &&
+                    data.relationships.attachments.data
+                ) {
+                    console.log(`attachments found in response post relationship: attachments:`, data.relationships.attachments.data);
+                    if (Array.isArray(data.relationships.attachments.data)) {
+                        data.relationships.attachments.data.forEach(dat => {
+                            names[dat.id] = name;
+                        });
+                    } else if (data.relationships.attachments.data.hasOwnProperty('id')) {
+                            names[data.relationships.attachments.data.id] = name;
+                    } else {
+                        exlog.error(`could not handle attachment in resounse post relationship; attachments.data: `, data.relationships.attachments.data);
                     }
                 }
             }
